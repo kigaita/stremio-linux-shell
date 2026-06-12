@@ -20,7 +20,7 @@ makedepends=(
     'cargo'
     'pkg-config'
 )
-source=("$pkgname::git+file:///home/kigaita/Documents/git/stremio-linux-shell")
+source=("$pkgname::git+file://$HOME/Documents/git/stremio-linux-shell")
 sha256sums=('SKIP')
 
 build() {
