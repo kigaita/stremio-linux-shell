@@ -1,3 +1,7 @@
 /target
 /vendor
 .flatpak-builder
+/src/stremio-linux-shell/
+/stremio-linux-shell/
+/pkg/
+/*.pkg.tar.zst
