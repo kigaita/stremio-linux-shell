@@ -50,50 +50,58 @@
     <launchable type="desktop-id">com.stremio.Stremio.desktop</launchable>
 
     <releases>
-        <release version="1.0.0-beta.13" date="2026-01-09">
+        <release version="1.2.0" date="2026-08-03">
             <description>
-                <ul>
-                    <li>Update server</li>
-                </ul>
+                <p>Add discord rich presence support</p>
+                <p>Fix random app freezes</p>
             </description>
         </release>
-        <release version="1.0.0-beta.12" date="2025-11-27">
+        <release version="1.1.4" date="2026-07-23">
             <description>
-                <ul>
-                    <li>Update server</li>
-                </ul>
+                <p>Fix screen blank behavior during playback</p>
+                <p>Fix gamepad not recognized</p>
+                <p>Fix server process running after main one crashed</p>
             </description>
         </release>
-        <release version="1.0.0-beta.11" date="2025-06-26">
+        <release version="1.1.3" date="2026-07-20">
             <description>
-                <ul>
-                    <li>Add spanish locale for system tray</li>
-                </ul>
+                <p>Fix app freeze during playback change</p>
             </description>
         </release>
-        <release version="1.0.0-beta.10" date="2025-06-14">
+        <release version="1.1.2" date="2026-07-06">
             <description>
-                <ul>
-                    <li>Fix player load issue with some streams</li>
-                    <li>Allow to zoom in-out with keyboard</li>
-                </ul>
+                <p>Fix external player m3u8 playlist opening</p>
+                <p>Fix downloads page access</p>
             </description>
         </release>
-        <release version="1.0.0-beta.9" date="2025-06-08">
+        <release version="1.1.1" date="2026-07-02">
             <description>
-                <ul>
-                    <li>Fix missing tray icon</li>
-                    <li>Remember maximized window state after hiding</li>
-                </ul>
+                <p>Fix next video behavior</p>
             </description>
         </release>
-        <release version="1.0.0-beta.8" date="2025-06-06" />
-        <release version="1.0.0-beta.7" date="2025-06-05" />
-        <release version="1.0.0-beta.6" date="2025-05-26" />
-        <release version="1.0.0-beta.5" date="2025-05-22" />
-        <release version="1.0.0-beta.4" date="2025-05-21" />
-        <release version="1.0.0-beta.3" date="2025-05-09" />
-        <release version="1.0.0-beta.2" date="2025-05-02" />
-        <release version="1.0.0-beta.1" date="2025-04-30" />
+        <release version="1.1.0" date="2026-07-01">
+            <description>
+                <p>Improve window appearance under KDE</p>
+                <p>Remember window state</p>
+                <p>Fix crash after quitting the app while playing</p>
+            </description>
+        </release>
+        <release version="1.0.3" date="2026-06-29">
+            <description>
+                <p>Fix low audio volume with Flatpak</p>
+            </description>
+        </release>
+        <release version="1.0.2" date="2026-06-28">
+            <description>
+                <p>Fix video acceleration with VA-API for Intel</p>
+                <p>Fix auto play next video when playback ended</p>
+            </description>
+        </release>
+        <release version="1.0.1" date="2026-06-27">
+            <description>
+                <p>Fix video acceleration with Vulkan for Intel</p>
+            </description>
+        </release>
+        <release version="1.0.0" date="2026-06-26" />
     </releases>
 </component>

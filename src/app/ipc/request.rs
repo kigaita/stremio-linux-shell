@@ -1,6 +1,8 @@
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::app::ipc::event::IpcEventDiscord;
+
 use super::event::{IpcEvent, IpcEventMpv};
 
 #[derive(Deserialize, Debug)]
@@ -28,8 +30,16 @@ pub struct IpcMessageRequestMediaStatus {
     paused: bool,
 }
 
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct IpcMessageRequestDiscordSetActivity {
+    details: String,
+    state: String,
+    image: Option<String>,
+}
+
 impl TryFrom<IpcMessageRequest> for IpcEvent {
-    type Error = &'static str;
+    type Error = String;
 
     fn try_from(value: IpcMessageRequest) -> Result<Self, Self::Error> {
         match value.r#type {
@@ -43,7 +53,6 @@ impl TryFrom<IpcMessageRequest> for IpcEvent {
 
                     match data {
                         Some(data) => match name {
-                            "app-ready" => Ok(IpcEvent::Ready),
                             "win-set-visibility" => {
                                 let data: IpcMessageRequestWinSetVisilibty =
                                     serde_json::from_value(data)
@@ -101,17 +110,36 @@ impl TryFrom<IpcMessageRequest> for IpcEvent {
 
                                 Ok(IpcEvent::MediaStatus(data.paused))
                             }
-                            _ => Err("Unknown method"),
+                            "discord-connect" => Ok(IpcEvent::Discord(IpcEventDiscord::Connect)),
+                            "discord-disconnect" => {
+                                Ok(IpcEvent::Discord(IpcEventDiscord::Disconnect))
+                            }
+                            "discord-set-activity" => {
+                                let data: IpcMessageRequestDiscordSetActivity =
+                                    serde_json::from_value(data)
+                                        .map_err(|_| "Invalid discord-set-activity object")?;
+
+                                Ok(IpcEvent::Discord(IpcEventDiscord::SetActivity((
+                                    data.details,
+                                    data.state,
+                                    data.image,
+                                ))))
+                            }
+                            "discord-clear-activity" => {
+                                Ok(IpcEvent::Discord(IpcEventDiscord::ClearActivity))
+                            }
+                            method => Err(format!("Invalid method: {method}")),
                         },
                         None => match name {
+                            "app-ready" => Ok(IpcEvent::Ready),
                             "quit" => Ok(IpcEvent::Quit),
-                            _ => Err("Unknown method"),
+                            method => Err(format!("Invalid method: {method}")),
                         },
                     }
                 }
-                None => Err("Missing args"),
+                None => Err("Invalid arguments".into()),
             },
-            _ => Err("Unknown type"),
+            r#type => Err(format!("Invalid type: {}", r#type)),
         }
     }
 }

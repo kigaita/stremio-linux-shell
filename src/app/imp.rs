@@ -2,18 +2,23 @@ use std::cell::{Cell, RefCell};
 
 use adw::{prelude::*, subclass::prelude::*};
 use gtk::glib::{self, Properties, clone};
+use tracing::error;
 
-use crate::app::{
-    config::{APP_ID, APP_NAME, URI_SCHEME},
-    ipc::{
-        self,
-        event::{IpcEvent, IpcEventMpv},
+use crate::{
+    app::{
+        config::{APP_ID, APP_NAME, URI_SCHEME},
+        discord::Discord,
+        ipc::{
+            self,
+            event::{IpcEvent, IpcEventDiscord, IpcEventMpv},
+        },
+        mpris::Mpris,
+        tray::Tray,
+        video::Video,
+        webview::WebView,
+        window::Window,
     },
-    mpris::Mpris,
-    tray::Tray,
-    video::Video,
-    webview::WebView,
-    window::Window,
+    spawn_local, utils,
 };
 
 const PRELOAD_SCRIPT: &str = include_str!("ipc/preload.js");
@@ -29,6 +34,7 @@ pub struct Application {
     decorations: Cell<bool>,
     tray: RefCell<Option<Tray>>,
     mpris: RefCell<Option<Mpris>>,
+    window: RefCell<Option<Window>>,
     webview: RefCell<Option<WebView>>,
     deeplink: RefCell<Option<String>>,
 }
@@ -50,6 +56,7 @@ impl ApplicationImpl for Application {
         let app = self.obj();
         app.setup_actions();
         app.setup_accels();
+        app.setup_css();
     }
 
     fn activate(&self) {
@@ -65,6 +72,7 @@ impl ApplicationImpl for Application {
         let tray = Tray::default();
         let video = Video::default();
         let mpris = Mpris::default();
+        let discord = Discord::new();
 
         let startup_url = self.startup_url.borrow();
         let dev_mode = self.dev_mode.get();
@@ -79,19 +87,19 @@ impl ApplicationImpl for Application {
         window.set_underlay(&video);
         window.set_overlay(&webview);
 
-        video.connect_playback_started(clone!(
-            #[weak]
-            window,
-            move || {
-                window.disable_idling();
-            }
-        ));
-
         video.connect_playback_ended(clone!(
             #[weak]
             window,
-            move || {
+            #[weak]
+            webview,
+            move |reason| {
                 window.enable_idling();
+
+                let message = ipc::create_response(IpcEvent::Mpv(IpcEventMpv::Ended((
+                    reason.to_string(),
+                    None,
+                ))));
+                webview.send(&message);
             }
         ));
 
@@ -140,6 +148,12 @@ impl ApplicationImpl for Application {
                         }
                         IpcEvent::MediaStatus(status) => {
                             mpris.set_status(status);
+
+                            if status {
+                                window.enable_idling();
+                            } else {
+                                window.disable_idling();
+                            }
                         }
                         IpcEvent::MediaMetadata((title, artist, artwork)) => {
                             mpris.set_metadata(title, artist, artwork);
@@ -147,6 +161,21 @@ impl ApplicationImpl for Application {
                         IpcEvent::Quit => {
                             app.quit();
                         }
+                        IpcEvent::Discord(event) => match event {
+                            IpcEventDiscord::Connect => {
+                                let connected = discord.connect();
+                                let message = ipc::create_response(IpcEvent::Discord(
+                                    IpcEventDiscord::Status(connected),
+                                ));
+                                webview.send(&message);
+                            }
+                            IpcEventDiscord::Disconnect => discord.disconnect(),
+                            IpcEventDiscord::SetActivity((details, state, image)) => {
+                                discord.set_activity(details, state, image)
+                            }
+                            IpcEventDiscord::ClearActivity => discord.clear_activity(),
+                            _ => {}
+                        },
                         IpcEvent::Mpv(event) => match event {
                             IpcEventMpv::Observe(name) => video.observe_mpv_property(name),
                             IpcEventMpv::Command((name, args)) => {
@@ -172,8 +201,17 @@ impl ApplicationImpl for Application {
         webview.connect_open_external(clone!(
             #[weak]
             window,
-            move |uri| {
-                window.open_uri(uri);
+            move |data| {
+                if data.starts_with("application/octet-stream") {
+                    spawn_local!(async move {
+                        match utils::download_file("playlist.m3u8", data).await {
+                            Ok(file_path) => window.open_file(file_path),
+                            Err(e) => error!("Failed to download file: {e}"),
+                        }
+                    });
+                } else {
+                    window.open_uri(data);
+                }
             }
         ));
 
@@ -232,17 +270,16 @@ impl ApplicationImpl for Application {
 
         mpris.start(APP_ID, APP_NAME);
 
+        window.present();
+
         *self.tray.borrow_mut() = Some(tray);
         *self.mpris.borrow_mut() = Some(mpris);
+        *self.window.borrow_mut() = Some(window);
         *self.webview.borrow_mut() = Some(webview);
-
-        window.present();
     }
 
     fn open(&self, files: &[gtk::gio::File], hint: &str) {
         self.parent_open(files, hint);
-
-        self.activate();
 
         if let Some(file) = files.first() {
             let uri = file.uri().to_string();
@@ -256,6 +293,16 @@ impl ApplicationImpl for Application {
                 }
             }
         }
+
+        self.activate();
+    }
+
+    fn shutdown(&self) {
+        if let Some(window) = self.window.take() {
+            window.destroy();
+        }
+
+        self.parent_shutdown();
     }
 }
 

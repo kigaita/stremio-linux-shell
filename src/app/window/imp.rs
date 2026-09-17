@@ -1,4 +1,4 @@
-use std::{cell::Cell, sync::Arc};
+use std::{cell::Cell, fs::File, os::fd::AsFd, sync::Arc};
 
 use adw::prelude::*;
 use adw::subclass::prelude::*;
@@ -13,13 +13,14 @@ use ashpd::{
     enumflags2::BitFlags,
 };
 use gtk::{
+    gio::Settings,
     glib::{self, clone, subclass::InitializingObject},
     prelude::WidgetExt,
 };
 use tokio::sync::Mutex;
 use tracing::error;
 
-use crate::spawn_local;
+use crate::{app::config::APP_ID, spawn_local, utils::IS_DESKTOP_KDE};
 
 #[derive(Default, glib::Properties, gtk::CompositeTemplate)]
 #[properties(wrapper_type = super::Window)]
@@ -62,21 +63,28 @@ impl Window {
             #[weak]
             object,
             async move {
-                if let Some(identifier) = WindowIdentifier::from_native(&object).await
-                    && let Ok(proxy) = InhibitProxy::new().await
+                if let Some(request) = inhibit_request.lock().await.take()
+                    && let Err(e) = request.close().await
                 {
-                    let mut flags = BitFlags::empty();
-                    flags.insert(InhibitFlags::Idle);
+                    error!("Failed to close the inhibit request: {e}");
+                }
 
-                    let options = InhibitOptions::default()
-                        .set_reason("Prevent screen from going blank during media playback");
+                if let Ok(proxy) = InhibitProxy::new().await {
+                    let identifier = WindowIdentifier::from_native(&object).await;
 
-                    let mut inhibit_request = inhibit_request.lock().await;
-                    *inhibit_request = proxy
-                        .inhibit(Some(&identifier), flags, options)
-                        .await
-                        .map_err(|e| error!("Failed to prevent idling: {e}"))
-                        .ok();
+                    tokio::spawn(async move {
+                        let mut flags = BitFlags::empty();
+                        flags.insert(InhibitFlags::Idle);
+
+                        let options = InhibitOptions::default()
+                            .set_reason("Prevent screen from going blank during media playback");
+
+                        *inhibit_request.lock().await = proxy
+                            .inhibit(identifier.as_ref(), flags, options)
+                            .await
+                            .map_err(|e| error!("Failed to prevent idling: {e}"))
+                            .ok();
+                    });
                 }
             }
         ));
@@ -119,6 +127,28 @@ impl Window {
         ));
     }
 
+    pub fn open_file(&self, file_path: String) {
+        let object = self.obj();
+
+        spawn_local!(clone!(
+            #[weak]
+            object,
+            async move {
+                if let Some(identifier) = WindowIdentifier::from_native(&object).await {
+                    let request = OpenFileRequest::default().identifier(identifier);
+
+                    if let Ok(file) = File::open(&file_path) {
+                        request
+                            .send_file(&file.as_fd())
+                            .await
+                            .map_err(|e| error!("Failed to open file: {e}"))
+                            .ok();
+                    }
+                }
+            }
+        ));
+    }
+
     pub fn show_header(&self, state: bool) {
         self.header.set_visible(self.decorations.get() && state);
     }
@@ -144,6 +174,14 @@ impl ObjectImpl for Window {
     fn constructed(&self) {
         self.parent_constructed();
 
+        let settings = Settings::new(APP_ID);
+
+        let kde_theme_enabled = settings.boolean("kde-theme");
+
+        if *IS_DESKTOP_KDE && kde_theme_enabled {
+            self.header.add_css_class("kde");
+        }
+
         if cfg!(debug_assertions) {
             self.obj().add_css_class("devel");
         }
@@ -154,10 +192,54 @@ impl WidgetImpl for Window {
     fn realize(&self) {
         self.parent_realize();
 
+        let widget = self.obj();
+        let settings = Settings::new(APP_ID);
+
         if !self.decorations.get() {
             self.show_header(false);
-            self.obj().remove_css_class("csd");
+            widget.remove_css_class("csd");
         }
+
+        let remember_window_state = settings.boolean("remember-window-state");
+        if remember_window_state {
+            let maximized = settings.boolean("window-maximized");
+            widget.set_maximized(maximized);
+
+            let fullscreen = settings.boolean("window-fullscreen");
+            widget.set_fullscreen(fullscreen);
+
+            if !maximized && !fullscreen {
+                let height = settings.int("window-height");
+                widget.set_default_height(height);
+
+                let width = settings.int("window-width");
+                widget.set_default_width(width);
+            }
+        }
+    }
+
+    fn unrealize(&self) {
+        let widget = self.obj();
+        let settings = Settings::new(APP_ID);
+
+        let remember_window_state = settings.boolean("remember-window-state");
+        if remember_window_state {
+            let maximized = widget.is_maximized();
+            settings.set_boolean("window-maximized", maximized).ok();
+
+            let fullscreen = widget.is_fullscreen();
+            settings.set_boolean("window-fullscreen", fullscreen).ok();
+
+            if !maximized && !fullscreen {
+                let height = widget.default_height();
+                settings.set_int("window-height", height).ok();
+
+                let width = widget.default_width();
+                settings.set_int("window-width", width).ok();
+            }
+        }
+
+        self.parent_unrealize();
     }
 }
 

@@ -25,7 +25,7 @@ impl Window {
     pub fn set_underlay(&self, widget: &impl IsA<Widget>) {
         let window = self.imp();
 
-        window.overlay.set_child(Some(&graphics_offload(widget)));
+        window.overlay.set_child(Some(widget));
     }
 
     pub fn set_overlay(&self, widget: &impl IsA<Widget>) {
@@ -59,6 +59,10 @@ impl Window {
 
     pub fn open_uri(&self, uri: String) {
         self.imp().open_uri(uri);
+    }
+
+    pub fn open_file(&self, file_path: String) {
+        self.imp().open_file(file_path);
     }
 }
 

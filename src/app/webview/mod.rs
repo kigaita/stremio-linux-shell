@@ -123,20 +123,42 @@ impl WebView {
 
     pub fn connect_open_external<T: Fn(String) + 'static>(&self, callback: T) {
         let widget = self.imp();
+        let cb = Rc::new(callback);
 
+        let callback = cb.clone();
         widget
             .webview
             .connect_decide_policy(move |_, decision, decision_type| {
-                if let PolicyDecisionType::NewWindowAction = decision_type
-                    && let Some(decision) = decision.downcast_ref::<NavigationPolicyDecision>()
-                    && let Some(action) = decision.navigation_action()
-                    && let Some(request) = action.request()
-                    && let Some(uri) = request.uri()
+                if let Some(uri) = decision
+                    .downcast_ref::<NavigationPolicyDecision>()
+                    .and_then(|decision| decision.navigation_action())
+                    .and_then(|action| action.request())
+                    .and_then(|request| request.uri())
                 {
-                    callback(uri.to_string());
+                    match decision_type {
+                        PolicyDecisionType::NavigationAction if uri.starts_with("data:") => {
+                            callback(uri.replace("data:", ""));
+                        }
+                        PolicyDecisionType::NewWindowAction => {
+                            callback(uri.to_string());
+                        }
+                        _ => {}
+                    }
                 }
 
                 true
             });
+
+        let callback = cb.clone();
+        widget.webview.connect_create(move |_, navigation_action| {
+            if let Some(uri) = navigation_action
+                .request()
+                .and_then(|request| request.uri())
+            {
+                callback(uri.to_string());
+            }
+
+            None
+        });
     }
 }

@@ -12,8 +12,7 @@ Client for Stremio on Linux using [`gtk4`](https://docs.gtk.org/gtk4/) + [`libad
 ## Installation
 
 ```bash
-flatpak remote-add --if-not-exists flathub-beta https://flathub.org/beta-repo/flathub-beta.flatpakrepo
-flatpak install flathub-beta com.stremio.Stremio
+flatpak install com.stremio.Stremio
 ```
 
 ## Development
@@ -22,24 +21,24 @@ flatpak install flathub-beta com.stremio.Stremio
 git clone --recurse-submodules https://github.com/Stremio/stremio-linux-shell
 ```
 
-### Building
-
 #### Fedora
 ```bash
-dnf install gtk4-devel libadwaita-devel webkitgtk6.0-devel mpv-devel libepoxy-devel flatpak-builder
+dnf install gtk4-devel libadwaita-devel webkitgtk6.0-devel mpv-devel libepoxy-devel nodejs flatpak-builder
+dnf install python3 && python3 -m pip install aiohttp toml # Needed for Flatpak build
 ```
 
 ```bash
-cargo build --release
+cargo run --release # RUST_LOG=debug to print debug logs
 ```
 
-#### Ubuntu
+#### Debian-based (Ubuntu, etc.)
 ```bash
 apt install build-essential pkg-config libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev libmpv-dev gettext nodejs flatpak-builder
+apt install python3 python3-aiohttp python3-toml elfutils # Needed for Flatpak build
 ```
 
 ```bash
-cargo build --release
+cargo run --release # RUST_LOG=debug to print debug logs
 ```
 
 #### Flatpak
@@ -48,11 +47,12 @@ flatpak install -y \
     org.gnome.Sdk//50 \
     org.gnome.Platform//50 \
     org.freedesktop.Sdk.Extension.rust-stable//25.08 \
-    org.freedesktop.Platform.ffmpeg-full//24.08 \
+    org.freedesktop.Platform.codecs-extra//25.08-extra \
     org.freedesktop.Platform.VAAPI.Intel//25.08
-python3 -m pip install aiohttp tomlkit
 ```
 
 ```bash
 ./flatpak/build.sh
+flatpak install ./flatpak/com.stremio.Stremio.Devel.flatpak
+flatpak run com.stremio.Stremio.Devel
 ```

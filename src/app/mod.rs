@@ -1,5 +1,6 @@
-mod about;
 mod config;
+mod dialogs;
+mod discord;
 mod imp;
 mod ipc;
 mod mpris;
@@ -9,14 +10,17 @@ mod webview;
 mod window;
 
 use gtk::{
+    CssProvider,
+    gdk::Display,
     gio::{self, ActionEntry, ApplicationFlags, prelude::*},
     glib::{self, ExitCode, Object},
     prelude::*,
 };
+use itertools::Itertools;
 
 use crate::app::{
-    about::AboutDialog,
-    config::{APP_ID, APP_NAME},
+    config::{APP_ID, APP_NAME, STYLE},
+    dialogs::{about::AboutDialog, preferences::PreferencesDialog},
 };
 
 glib::wrapper! {
@@ -41,15 +45,25 @@ impl Application {
             .build()
     }
 
-    pub async fn run(&self) -> ExitCode {
-        let args: Vec<String> = vec![];
-        self.run_with_args(&args)
+    pub fn run(&self, args: Vec<String>) -> ExitCode {
+        let mut program = std::env::args().take(1).collect_vec();
+        program.extend(args);
+        self.run_with_args(&program)
     }
 
     fn setup_actions(&self) {
         let quit_action = ActionEntry::builder("quit")
             .activate(|app: &Self, _, _| {
                 app.quit();
+            })
+            .build();
+
+        let show_preferences_action = ActionEntry::builder("show-preferences")
+            .activate(|app: &Self, _, _| {
+                if let Some(window) = app.active_window() {
+                    let dialog = PreferencesDialog::new();
+                    dialog.show(&window);
+                }
             })
             .build();
 
@@ -62,10 +76,23 @@ impl Application {
             })
             .build();
 
-        self.add_action_entries([quit_action, show_about_action]);
+        self.add_action_entries([quit_action, show_preferences_action, show_about_action]);
     }
 
     fn setup_accels(&self) {
         self.set_accels_for_action("app.quit", &["<Control>q"]);
+        self.set_accels_for_action("app.show-preferences", &["<Control>comma"]);
+    }
+
+    fn setup_css(&self) {
+        let provider = CssProvider::new();
+        provider.load_from_string(STYLE);
+
+        let display = Display::default().expect("Failed to connect to a display");
+        gtk::style_context_add_provider_for_display(
+            &display,
+            &provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
     }
 }

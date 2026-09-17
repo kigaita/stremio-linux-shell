@@ -9,7 +9,16 @@ pub enum IpcEventMpv {
     Command((String, Vec<String>)),
     Set((String, Value)),
     Change((String, Value)),
-    Ended(Option<String>),
+    Ended((String, Option<String>)),
+}
+
+#[derive(Deserialize, Debug)]
+pub enum IpcEventDiscord {
+    Status(bool),
+    Connect,
+    Disconnect,
+    SetActivity((String, String, Option<String>)),
+    ClearActivity,
 }
 
 #[derive(Deserialize, Debug)]
@@ -23,6 +32,7 @@ pub enum IpcEvent {
     Mpv(IpcEventMpv),
     MediaMetadata((String, Option<String>, Option<String>)),
     MediaStatus(bool),
+    Discord(IpcEventDiscord),
 }
 
 impl TryFrom<&str> for IpcEvent {

@@ -1,21 +1,17 @@
+use gdk_wayland::{WaylandDisplay, wayland_client::Proxy};
 use gtk::{
     gdk::GLContext,
-    glib::{self, Propagation, Properties, Variant, clone, subclass::Signal},
+    glib::{self, ControlFlow, Propagation, Properties, Variant, clone, subclass::Signal},
     prelude::*,
     subclass::prelude::*,
 };
-use libc::{LC_NUMERIC, setlocale};
 use libmpv2::{
     Format, Mpv, SetData,
     events::{Event, PropertyData},
+    mpv_end_file_reason,
     render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType},
 };
-use std::{
-    cell::RefCell,
-    env,
-    os::raw::c_void,
-    sync::{OnceLock, mpsc::channel},
-};
+use std::{cell::RefCell, env, os::raw::c_void, sync::OnceLock};
 use tracing::error;
 
 fn get_proc_address(_context: &GLContext, name: &str) -> *mut c_void {
@@ -31,11 +27,6 @@ pub struct Video {
 
 impl Default for Video {
     fn default() -> Self {
-        // Required for libmpv to work alongside gtk
-        unsafe {
-            setlocale(LC_NUMERIC, c"C".as_ptr());
-        }
-
         let log = env::var("RUST_LOG");
         let msg_level = match log {
             Ok(scope) => &format!("all={}", scope.as_str()),
@@ -45,6 +36,7 @@ impl Default for Video {
         let mpv = Mpv::with_initializer(|init| {
             init.set_property("vo", "libmpv")?;
             init.set_property("video-timing-offset", "0")?;
+            init.set_property("video-sync", "audio")?;
             init.set_property("terminal", "yes")?;
             init.set_property("msg-level", msg_level)?;
             Ok(())
@@ -105,8 +97,9 @@ impl ObjectImpl for Video {
                 Signal::builder("property-changed")
                     .param_types([str::static_type(), Variant::static_type()])
                     .build(),
-                Signal::builder("playback-started").build(),
-                Signal::builder("playback-ended").build(),
+                Signal::builder("playback-ended")
+                    .param_types([str::static_type()])
+                    .build(),
             ]
         })
     }
@@ -120,7 +113,7 @@ impl ObjectImpl for Video {
             #[weak(rename_to = object)]
             self.obj(),
             #[upgrade_or]
-            glib::ControlFlow::Continue,
+            ControlFlow::Break,
             move || {
                 video.on_event(|event| match event {
                     Event::PropertyChange { name, change, .. } => {
@@ -135,16 +128,22 @@ impl ObjectImpl for Video {
                             object.emit_by_name::<()>("property-changed", &[&name, &value]);
                         }
                     }
-                    Event::StartFile => {
-                        object.emit_by_name::<()>("playback-started", &[]);
-                    }
-                    Event::EndFile(_) => {
-                        object.emit_by_name::<()>("playback-ended", &[]);
+                    Event::EndFile(reason) => {
+                        let reason = match reason {
+                            mpv_end_file_reason::Eof => "eof".to_string(),
+                            mpv_end_file_reason::Stop => "stop".to_string(),
+                            mpv_end_file_reason::Redirect => "redirect".to_string(),
+                            mpv_end_file_reason::Error => "error".to_string(),
+                            mpv_end_file_reason::Quit => "quit".to_string(),
+                            _ => "other".to_string(),
+                        };
+
+                        object.emit_by_name::<()>("playback-ended", &[&reason]);
                     }
                     _ => {}
                 });
 
-                glib::ControlFlow::Continue
+                ControlFlow::Continue
             }
         ));
     }
@@ -165,32 +164,39 @@ impl WidgetImpl for Video {
             let mut mpv = self.mpv.borrow_mut();
             let mpv_handle = unsafe { mpv.ctx.as_mut() };
 
-            let mut render_context = RenderContext::new(
-                mpv_handle,
-                vec![
-                    RenderParam::ApiType(RenderParamApiType::OpenGl),
-                    RenderParam::InitParams(OpenGLInitParams {
-                        get_proc_address,
-                        ctx: context,
-                    }),
-                    RenderParam::BlockForTargetTime(false),
-                ],
-            )
-            .expect("Failed to create render context");
+            let mut render_params = vec![
+                RenderParam::ApiType(RenderParamApiType::OpenGl),
+                RenderParam::InitParams(OpenGLInitParams {
+                    get_proc_address,
+                    ctx: context,
+                }),
+            ];
 
-            let (sender, receiver) = channel::<()>();
+            let display = object.display();
+            if let Ok(display) = display.downcast::<WaylandDisplay>()
+                && let Some(display) = display.wl_display()
+            {
+                render_params.push(RenderParam::WaylandDisplay(
+                    display.id().as_ptr() as *const c_void
+                ));
+            }
+
+            let mut render_context = RenderContext::new(mpv_handle, render_params)
+                .expect("Failed to create render context");
+
+            let (sender, receiver) = flume::unbounded::<()>();
 
             glib::idle_add_local(clone!(
                 #[weak]
                 object,
                 #[upgrade_or]
-                glib::ControlFlow::Continue,
+                ControlFlow::Break,
                 move || {
                     if let Ok(()) = receiver.try_recv() {
                         object.queue_render();
                     }
 
-                    glib::ControlFlow::Continue
+                    ControlFlow::Continue
                 }
             ));
 
@@ -203,6 +209,7 @@ impl WidgetImpl for Video {
     }
 
     fn unrealize(&self) {
+        self.obj().make_current();
         if let Some(render_context) = self.render_context.borrow_mut().take() {
             drop(render_context);
         }
